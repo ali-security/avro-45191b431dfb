@@ -22,8 +22,10 @@ import static org.junit.Assert.*;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -33,6 +35,7 @@ import org.apache.avro.Schema.Field;
 import org.apache.avro.Schema.Type;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.io.DatumWriter;
+import org.apache.avro.io.DecoderFactory;
 import org.apache.avro.io.Encoder;
 import org.apache.avro.io.EncoderFactory;
 import org.junit.Before;
@@ -173,5 +176,61 @@ public class TestSpecificData {
     } catch (ClassCastException cce) {
       // Expected error
     }
+  }
+
+  private static final String DENIED_CLASS = "javax.management.BadAttributeValueExpException";
+
+  private static Object read(SpecificDatumReader<Object> reader, String javaClass, String value) throws IOException {
+    String json = "{\"type\":\"string\",\"avro.java.string\":\"String\",\"java-class\":\"" + javaClass + "\"}";
+    Schema schema = new Schema.Parser().parse(json);
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    Encoder encoder = EncoderFactory.get().binaryEncoder(baos, null);
+    encoder.writeString(value);
+    encoder.flush();
+    reader.setSchema(schema);
+    return reader.read(null, DecoderFactory.get().binaryDecoder(baos.toByteArray(), null));
+  }
+
+  private static void assertForbidden(SpecificDatumReader<Object> reader, String javaClass) throws IOException {
+    try {
+      read(reader, javaClass, "value");
+      fail("Expected SecurityException for java-class " + javaClass);
+    } catch (SecurityException e) {
+      assertTrue(e.getMessage(), e.getMessage().contains(javaClass));
+    }
+  }
+
+  @Test
+  public void testDeniedClassDefaultConstructor() throws Exception {
+    assertForbidden(new SpecificDatumReader<>(), DENIED_CLASS);
+  }
+
+  @Test
+  public void testDeniedClassSpecificDataConstructor() throws Exception {
+    SpecificDatumReader<Object> reader = new SpecificDatumReader<>(SpecificData.get());
+    assertTrue(reader.getUntrustedPackages().contains(DENIED_CLASS));
+    assertForbidden(reader, DENIED_CLASS);
+  }
+
+  @Test
+  public void testDeniedPackageEntry() throws Exception {
+    // org.mozilla.javascript is a package entry; the probe lives under it
+    String probe = "org.mozilla.javascript.DenyListProbe";
+    assertTrue(Arrays.asList(SpecificDatumReader.DENY_LIST).contains("org.mozilla.javascript"));
+    assertForbidden(new SpecificDatumReader<>(), probe);
+    assertForbidden(new SpecificDatumReader<>(SpecificData.get()), probe);
+  }
+
+  @Test
+  public void testUrlClassLoaderEntry() throws Exception {
+    assertTrue(Arrays.asList(SpecificDatumReader.DENY_LIST).contains("java.net.URLClassLoader"));
+    assertForbidden(new SpecificDatumReader<>(), "java.net.URLClassLoader");
+  }
+
+  @Test
+  public void testAllowedClassStillDeserializes() throws Exception {
+    SpecificDatumReader<Object> dataReader = new SpecificDatumReader<>(SpecificData.get());
+    assertEquals(new BigDecimal("1.5"), read(new SpecificDatumReader<>(), "java.math.BigDecimal", "1.5"));
+    assertEquals(new BigDecimal("2.5"), read(dataReader, "java.math.BigDecimal", "2.5"));
   }
 }
