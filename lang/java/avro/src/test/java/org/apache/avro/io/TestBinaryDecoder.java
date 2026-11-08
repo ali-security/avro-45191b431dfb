@@ -28,6 +28,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import org.apache.avro.AvroRuntimeException;
 import org.apache.avro.Schema;
+import org.apache.avro.SystemLimitException;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.util.ByteBufferInputStream;
@@ -37,6 +38,7 @@ import org.apache.avro.util.Utf8;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.After;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameters;
@@ -352,10 +354,10 @@ public class TestBinaryDecoder {
   @Test
   public void testStringMaxArraySize() throws IOException {
     byte[] bad = new byte[10];
-    BinaryData.encodeLong(BinaryDecoder.MAX_ARRAY_SIZE + 1, bad, 0);
+    BinaryData.encodeLong(SystemLimitException.MAX_ARRAY_VM_LIMIT + 1, bad, 0);
     Decoder bd = factory.binaryDecoder(bad, null);
 
-    Assert.assertThrows("Cannot read strings longer than " + BinaryDecoder.MAX_ARRAY_SIZE + " bytes",
+    Assert.assertThrows("Cannot read strings longer than " + SystemLimitException.MAX_ARRAY_VM_LIMIT + " bytes",
         UnsupportedOperationException.class, bd::readString);
   }
 
@@ -370,10 +372,11 @@ public class TestBinaryDecoder {
   @Test
   public void testBytesMaxArraySize() throws IOException {
     byte[] bad = new byte[10];
-    BinaryData.encodeLong(BinaryDecoder.MAX_ARRAY_SIZE + 1, bad, 0);
+    BinaryData.encodeLong(SystemLimitException.MAX_ARRAY_VM_LIMIT + 1, bad, 0);
     Decoder bd = factory.binaryDecoder(bad, null);
 
-    Assert.assertThrows("Cannot read arrays longer than " + BinaryDecoder.MAX_ARRAY_SIZE + " bytes",
+    Assert.assertThrows(
+        "Cannot read arrays longer than " + SystemLimitException.MAX_ARRAY_VM_LIMIT + " bytes in Java library",
         UnsupportedOperationException.class, () -> bd.readBytes(null));
   }
 
@@ -383,13 +386,15 @@ public class TestBinaryDecoder {
     byte[] bad = new byte[10];
     BinaryData.encodeLong(maxLength + 1, bad, 0);
     try {
-      System.setProperty("org.apache.avro.limits.bytes.maxLength", Long.toString(maxLength));
+      System.setProperty(SystemLimitException.MAX_BYTES_LENGTH_PROPERTY, Long.toString(maxLength));
+      SystemLimitException.resetLimits();
       Decoder bd = factory.binaryDecoder(bad, null);
 
-      Assert.assertThrows("Bytes length " + (maxLength + 1) + " exceeds maximum allowed", AvroRuntimeException.class,
+      Assert.assertThrows("Bytes length " + (maxLength + 1) + " exceeds maximum allowed", SystemLimitException.class,
           () -> bd.readBytes(null));
     } finally {
-      System.clearProperty("org.apache.avro.limits.bytes.maxLength");
+      System.clearProperty(SystemLimitException.MAX_BYTES_LENGTH_PROPERTY);
+      SystemLimitException.resetLimits();
     }
   }
 
@@ -491,4 +496,169 @@ public class TestBinaryDecoder {
     d.readInt();
   }
 
+  @Test
+  public void testArrayVmMaxSize() throws IOException {
+    // At start
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    Encoder encoder = EncoderFactory.get().binaryEncoder(baos, null);
+    encoder.writeLong(SystemLimitException.MAX_ARRAY_VM_LIMIT + 1);
+    encoder.flush();
+
+    Decoder decoder = newDecoder(baos.toByteArray());
+    try {
+      decoder.readArrayStart();
+      Assert.fail("Expected UnsupportedOperationException");
+    } catch (UnsupportedOperationException ex) {
+      Assert.assertEquals(
+          "Cannot read collections larger than " + SystemLimitException.MAX_ARRAY_VM_LIMIT + " items in Java library",
+          ex.getMessage());
+    }
+
+    // Two OK reads followed by going over the VM limit
+    baos = new ByteArrayOutputStream();
+    encoder = EncoderFactory.get().binaryEncoder(baos, null);
+    encoder.writeLong(SystemLimitException.MAX_ARRAY_VM_LIMIT - 100); // First block
+    encoder.writeLong(100); // Second block
+    encoder.writeLong(1); // Third block (this should trigger the limit)
+    encoder.flush();
+
+    decoder = newDecoder(baos.toByteArray());
+    Assert.assertEquals(SystemLimitException.MAX_ARRAY_VM_LIMIT - 100, decoder.readArrayStart());
+    Assert.assertEquals(100, decoder.arrayNext());
+    try {
+      decoder.arrayNext();
+      Assert.fail("Expected UnsupportedOperationException");
+    } catch (UnsupportedOperationException ex) {
+      Assert.assertEquals(
+          "Cannot read collections larger than " + SystemLimitException.MAX_ARRAY_VM_LIMIT + " items in Java library",
+          ex.getMessage());
+    }
+  }
+
+  @Test
+  public void testMapVmMaxSize() throws IOException {
+    // At start
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    Encoder encoder = EncoderFactory.get().binaryEncoder(baos, null);
+    encoder.writeLong(SystemLimitException.MAX_ARRAY_VM_LIMIT + 1);
+    encoder.flush();
+
+    Decoder decoder = newDecoder(baos.toByteArray());
+    try {
+      decoder.readMapStart();
+      Assert.fail("Expected UnsupportedOperationException");
+    } catch (UnsupportedOperationException ex) {
+      Assert.assertEquals(
+          "Cannot read collections larger than " + SystemLimitException.MAX_ARRAY_VM_LIMIT + " items in Java library",
+          ex.getMessage());
+    }
+  }
+
+  @Test
+  public void testArrayMaxCustom() throws IOException {
+    try {
+      System.setProperty(SystemLimitException.MAX_COLLECTION_LENGTH_PROPERTY, Long.toString(128));
+      SystemLimitException.resetLimits();
+
+      // Two reads that exceed the custom limit
+      ByteArrayOutputStream baos = new ByteArrayOutputStream();
+      Encoder encoder = EncoderFactory.get().binaryEncoder(baos, null);
+      encoder.writeLong(100); // First block
+      encoder.writeLong(29); // Second block (exceeds 128 limit)
+      encoder.flush();
+
+      Decoder decoder = newDecoder(baos.toByteArray());
+      Assert.assertEquals(100, decoder.readArrayStart());
+      try {
+        decoder.arrayNext();
+        Assert.fail("Expected SystemLimitException");
+      } catch (SystemLimitException ex) {
+        Assert.assertEquals("Collection length 129 exceeds maximum allowed", ex.getMessage());
+      }
+    } finally {
+      System.clearProperty(SystemLimitException.MAX_COLLECTION_LENGTH_PROPERTY);
+      SystemLimitException.resetLimits();
+    }
+  }
+
+  /**
+   * Decoder over a stream, so that the tests below run against both the direct
+   * and the buffered decoder implementations.
+   */
+  private Decoder newStreamDecoder(byte[] bytes) {
+    return newDecoder(new ByteArrayInputStream(bytes));
+  }
+
+  @Test
+  public void testStringNegativeLength() throws IOException {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    Encoder encoder = EncoderFactory.get().binaryEncoder(baos, null);
+    encoder.writeLong(-1L);
+    encoder.flush();
+
+    Decoder decoder = newStreamDecoder(baos.toByteArray());
+    try {
+      decoder.readString();
+      Assert.fail("Expected AvroRuntimeException");
+    } catch (AvroRuntimeException ex) {
+      Assert.assertEquals("Malformed data. Length is negative: -1", ex.getMessage());
+    }
+  }
+
+  @Test
+  public void testStringVmMaxSize() throws IOException {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    Encoder encoder = EncoderFactory.get().binaryEncoder(baos, null);
+    encoder.writeLong(SystemLimitException.MAX_ARRAY_VM_LIMIT + 1L);
+    encoder.flush();
+
+    Decoder decoder = newStreamDecoder(baos.toByteArray());
+    try {
+      decoder.readString();
+      Assert.fail("Expected UnsupportedOperationException");
+    } catch (UnsupportedOperationException ex) {
+      Assert.assertEquals("Cannot read strings longer than " + SystemLimitException.MAX_ARRAY_VM_LIMIT + " bytes",
+          ex.getMessage());
+    }
+  }
+
+  @Test
+  public void testBytesNegativeLength() throws IOException {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    Encoder encoder = EncoderFactory.get().binaryEncoder(baos, null);
+    encoder.writeLong(-1L);
+    encoder.flush();
+
+    Decoder decoder = newStreamDecoder(baos.toByteArray());
+    try {
+      decoder.readBytes(null);
+      Assert.fail("Expected AvroRuntimeException");
+    } catch (AvroRuntimeException ex) {
+      Assert.assertEquals("Malformed data. Length is negative: -1", ex.getMessage());
+    }
+  }
+
+  @Test
+  public void testBytesMaxCustom() throws IOException {
+    try {
+      System.setProperty(SystemLimitException.MAX_BYTES_LENGTH_PROPERTY, Long.toString(128));
+      SystemLimitException.resetLimits();
+
+      ByteArrayOutputStream baos = new ByteArrayOutputStream();
+      Encoder encoder = EncoderFactory.get().binaryEncoder(baos, null);
+      encoder.writeLong(129);
+      encoder.flush();
+
+      Decoder decoder = newStreamDecoder(baos.toByteArray());
+      try {
+        decoder.readBytes(null);
+        Assert.fail("Expected SystemLimitException");
+      } catch (SystemLimitException ex) {
+        Assert.assertEquals("Bytes length 129 exceeds maximum allowed", ex.getMessage());
+      }
+    } finally {
+      System.clearProperty(SystemLimitException.MAX_BYTES_LENGTH_PROPERTY);
+      SystemLimitException.resetLimits();
+    }
+  }
 }

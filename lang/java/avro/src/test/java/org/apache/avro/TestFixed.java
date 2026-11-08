@@ -21,6 +21,8 @@ package org.apache.avro;
 import org.junit.Assert;
 import org.junit.Test;
 
+import static org.junit.Assert.*;
+
 public class TestFixed {
 
   @Test
@@ -33,4 +35,16 @@ public class TestFixed {
     Assert.assertArrayEquals(new byte[16], (byte[]) field.defaultVal());
   }
 
+  @Test
+  public void testFixedLengthOutOfLimit() {
+    Exception ex = assertThrows(UnsupportedOperationException.class,
+        () -> Schema.createFixed("oversize", "doc", "space", Integer.MAX_VALUE));
+    assertEquals(TestSystemLimitException.ERROR_VM_LIMIT_BYTES, ex.getMessage());
+  }
+
+  @Test
+  public void testFixedNegativeLength() {
+    Exception ex = assertThrows(AvroRuntimeException.class, () -> Schema.createFixed("negative", "doc", "space", -1));
+    assertEquals(TestSystemLimitException.ERROR_NEGATIVE, ex.getMessage());
+  }
 }
