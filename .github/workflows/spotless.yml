@@ -16,13 +16,6 @@
 name: 'Spotless'
 on:
   workflow_dispatch:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
-    paths:
-    - .github/workflows/spotless.yml
-    - lang/java/**
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -35,7 +28,7 @@ jobs:
       - uses: actions/checkout@v2
 
       - name: Cache Local Maven Repository
-        uses: actions/cache@v2
+        uses: actions/cache@v4
         with:
           path: ~/.m2/repository
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}

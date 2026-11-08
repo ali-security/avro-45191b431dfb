@@ -302,7 +302,7 @@ do
         echo "RUN getent passwd $USER_ID || useradd -g $GROUP_ID -u $USER_ID -k /root -m $USER_NAME"
       } > Dockerfile
       # shellcheck disable=SC2086
-      tar -cf- lang/ruby/Gemfile Dockerfile | docker build $DOCKER_BUILD_XTRA_ARGS -t "$DOCKER_IMAGE_NAME" -
+      tar -cf- lang/ruby/Gemfile Dockerfile | docker build --platform linux/amd64 $DOCKER_BUILD_XTRA_ARGS -t "$DOCKER_IMAGE_NAME" -
       rm Dockerfile
       # By mapping the .m2 directory you can do an mvn install from
       # within the container and use the result on your normal

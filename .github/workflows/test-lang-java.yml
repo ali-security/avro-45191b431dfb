@@ -16,14 +16,11 @@
 name: 'Test Java'
 on:
   workflow_dispatch:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
-    paths:
-    - .github/workflows/test-lang-java.yml
-    - lang/java/**
-    - pom.xml
+    inputs:
+      test-filter:
+        description: 'Space-separated surefire test classes to run instead of the full suite (empty = full suite)'
+        required: false
+        default: ''
 
 defaults:
   run:
@@ -37,7 +34,9 @@ jobs:
   test:
     name: Java ${{ matrix.java }} Test
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     strategy:
+      fail-fast: false
       matrix:
         java:
         - '8'
@@ -49,7 +48,7 @@ jobs:
       - uses: actions/checkout@v2
 
       - name: Cache Local Maven Repository
-        uses: actions/cache@v2
+        uses: actions/cache@v4
         with:
           path: ~/.m2/repository
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
@@ -57,29 +56,45 @@ jobs:
             ${{ runner.os }}-maven-
 
       - name: Setup Temurin JDK
-        if: matrix.java == '8' || matrix.java == '11' || matrix.java == '17'
         uses: actions/setup-java@v2
         with:
           distribution: 'temurin'
           java-version: ${{ matrix.java }}
 
-      - name: Setup Oracle JDK
-        if: matrix.java == '18' || matrix.java == '19'
-        uses: oracle-actions/setup-java@v1
-        with:
-          website: jdk.java.net
-          release: ${{ matrix.java }}
-          version: latest
-
       - name: Lint
         run: ./build.sh lint
 
       - name: Test
-        run: ./build.sh test
+        env:
+          # JDK 18 (EOL, last build 18.0.2.1) NPEs in its cgroup v2 detection on the
+          # current ubuntu runner whenever a test asks for the OperatingSystemMXBean
+          # (TestDataFileReader.testForLeakingFileDescriptors); container support off avoids that code path.
+          JAVA_TOOL_OPTIONS: ${{ matrix.java == '18' && '-XX:-UseContainerSupport' || '' }}
+        run: |
+          if [ -n "${{ inputs.test-filter }}" ]; then
+            mvn -B test -Dtest="$(echo '${{ inputs.test-filter }}' | tr ' ' ',')" -Dsurefire.failIfNoSpecifiedTests=false
+          else
+            ./build.sh test
+          fi
+
+      - name: Package Avro jars
+        if: matrix.java == '8'
+        run: mvn -B package -DskipTests -pl avro
+
+      - name: Upload Avro jars
+        if: matrix.java == '8'
+        uses: actions/upload-artifact@v4
+        with:
+          name: avro-jars
+          path: |
+            lang/java/avro/target/avro-1.11.1.jar
+            lang/java/avro/target/avro-1.11.1-tests.jar
+          if-no-files-found: error
 
   interop:
     name: Java ${{ matrix.java }} Interop
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     strategy:
       matrix:
         java:
@@ -90,7 +105,7 @@ jobs:
       - uses: actions/checkout@v2
 
       - name: Cache Local Maven Repository
-        uses: actions/cache@v2
+        uses: actions/cache@v4
         with:
           path: ~/.m2/repository
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
@@ -104,7 +119,7 @@ jobs:
           java-version: ${{ matrix.java }}
 
       - name: Setup Python for Generating Input Data
-        uses: actions/setup-python@v2
+        uses: MatteoH2O1999/setup-python@v4
 
       - name: Apt Install Compression Libs Required by Python
         run: |

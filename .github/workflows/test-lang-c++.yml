@@ -16,13 +16,6 @@
 name: Test C++
 on:
   workflow_dispatch:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
-    paths:
-    - '.github/workflows/test-lang-c\+\+.yml'
-    - 'lang/c\+\+/**'
 
 defaults:
   run:

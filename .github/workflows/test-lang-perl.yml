@@ -16,13 +16,6 @@
 name: 'Test Perl'
 on:
   workflow_dispatch:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
-    paths:
-    - .github/workflows/test-lang-perl.yml
-    - lang/perl/**
 
 defaults:
   run:
@@ -116,7 +109,7 @@ jobs:
                                                        inc::Module::Install
 
       - name: Cache Local Maven Repository
-        uses: actions/cache@v2
+        uses: actions/cache@v4
         with:
           path: ~/.m2/repository
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}

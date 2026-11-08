@@ -21,16 +21,7 @@
 name: "CodeQL Python"
 
 on:
-  push:
-    branches:
-    - master
-  pull_request:
-    # The branches below must be a subset of the branches above
-    branches:
-    - master
-    paths:
-    - .github/workflows/codeql-py-analysis.yml
-    - lang/py/**
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

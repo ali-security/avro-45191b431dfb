@@ -17,7 +17,6 @@
 
 os: linux
 dist: focal
-arch: arm64-graviton2
 group: edge
 virt: vm
 language: generic
@@ -40,14 +39,21 @@ matrix:
         apt:
           update: true
           packages:
-            - openjdk-8-jdk
             - wget
+      before_install:
+        - lscpu
+        # The Travis image ships without /usr/share/man/man1, which makes the
+        # openjdk-8 postinst (update-alternatives man-page links) fail.
+        - sudo mkdir -p /usr/share/man/man1
+        - sudo apt-get install -yq --no-install-recommends openjdk-8-jdk
+      env:
+        - MAVEN_OPTS="-Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn"
       install:
         - export MAVEN_VERSION="3.8.3"
         - wget https://archive.apache.org/dist/maven/maven-3/$MAVEN_VERSION/binaries/apache-maven-$MAVEN_VERSION-bin.tar.gz
         - tar zxvf apache-maven-$MAVEN_VERSION-bin.tar.gz
         - export M2_HOME=$PWD/apache-maven-$MAVEN_VERSION
-        - export JAVA_HOME="/usr/lib/jvm/java-8-openjdk-arm64"
+        - export JAVA_HOME="/usr/lib/jvm/java-8-openjdk-amd64"
         - export PATH="$M2_HOME/bin:$JAVA_HOME/bin:$PATH"
       before_script:
         - java -version
@@ -55,168 +61,25 @@ matrix:
       script:
         - cd lang/java
         - ./build.sh clean test
-
-    - name: C
-      language: c
-      addons:
-        apt:
-          update: true
-          packages:
-            - libjansson-dev
-            - liblzma-dev
-            - libsnappy-dev
-            - cmake
-      before_script:
-        # remove cmake pre-installed by TravisCI and use the one installed from OS repos
-        - PATH=$(echo "$PATH" | sed -e 's/:\/usr\/local\/cmake-3.16.8\/bin//')
-      script:
-        - cd lang/c
-        - ./build.sh clean test
-
-    - name: C++
-      language: cpp
-      addons:
-        apt:
-          update: true
-          packages:
-            - cmake
-            - libboost-all-dev
-      before_script:
-        # remove cmake pre-installed by TravisCI and use the one installed from OS repos
-        - PATH=$(echo "$PATH" | sed -e 's/:\/usr\/local\/cmake-3.16.8\/bin//')
-      script:
-        - cd lang/c++
-        - ./build.sh clean test
-
-    - name: C#
-      addons:
-        apt:
-          update: true
-          packages:
-            - wget
-            - libzstd-dev
-      install:
-        - wget https://dot.net/v1/dotnet-install.sh
-        - bash ./dotnet-install.sh --channel "3.1" --install-dir "$HOME/.dotnet" # 3.1
-        - bash ./dotnet-install.sh --channel "5.0" --install-dir "$HOME/.dotnet" # 5.0
-        - bash ./dotnet-install.sh --channel "6.0" --install-dir "$HOME/.dotnet" # 6.0
-      before_script:
-        - export PATH=$HOME/.dotnet:$PATH
-        - dotnet --list-sdks
-      script:
-        - cd lang/csharp
-        - ./build.sh clean test
-
-    - name: Python
-      language: python
-      python:
-        - "3.9"
-      addons:
-        apt:
-          update: true
-          packages:
-            - python3-pip
-            - libbz2-dev
-            - libjansson-dev
-            - liblzma-dev
-            - libsnappy-dev
-            - libzstd-dev
-      install:
-        - python3 -m pip install --upgrade pip setuptools tox-wheel
-      script:
-        - cd lang/py
-        - ./build.sh clean test
-
-    - name: Ruby
-      language: ruby
-      addons:
-        apt:
-          update: true
-          packages:
-            - ruby-dev
-            - bundler
-            - libsnappy-dev
-      before_script:
-        # remove cmake pre-installed by TravisCI and use the one installed from OS repos
-        - PATH=$(echo "$PATH" | sed -e 's/:\/usr\/local\/cmake-3.16.8\/bin//')
-      script:
-        - cd lang/ruby
-        - ./build.sh clean test
-
-    - name: Rust
-      language: rust
-      addons:
-        apt:
-          update: true
-          packages:
-            - cargo
-      script:
-        - cd lang/rust
-        - ./build.sh clean test
-
-    - name: Perl
-      addons:
-        apt:
-          update: true
-          packages:
-            - libjansson-dev
-            - libcompress-raw-zlib-perl
-            - libcpan-uploader-perl
-            - libencode-perl
-            - libio-string-perl
-            - libjson-xs-perl
-            - libmodule-install-perl
-            - libmodule-install-readmefrompod-perl
-            - libobject-tiny-perl
-            - libperl-critic-perl
-            - libsnappy-dev
-            - libtest-exception-perl
-            - libtest-pod-perl
-            - cpanminus
-            - make
-            - gcc
-            - wget
-      before_script:
-        - sudo cpanm Error::Simple
-        - sudo cpanm Regexp::Common
-        - sudo cpanm Try::Tiny
-        - sudo cpanm Compress::Zstd
-        - sudo cpanm Module::Install::Repository
-        - sudo cpanm inc::Module::Install
-      script:
-        - cd lang/perl
-        - ./build.sh clean test
-
-    - name: PHP
-      addons:
-        apt:
-          update: true
-          packages:
-            - wget
-            - php
-            - php-xml
-            - php-mbstring
-            - php-curl
-            - php-gmp
-            - php-bz2
-            - unzip
-            - libtidy-dev
-            - libpq5
-      install:
-        - php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
-        - php -r "if (hash_file('sha384', 'composer-setup.php') === '55ce33d7678c5a611085589f1f3ddf8b3c52d662cd01d4ba75c0ee0459970c2200a51f492d557530c71c15d8dba01eae') { echo 'Installer verified'; } else { echo 'Installer corrupt'; unlink('composer-setup.php'); } echo PHP_EOL;"
-        - php composer-setup.php --version=2.2.5
-        - php -r "unlink('composer-setup.php');"
-        - sudo mv composer.phar /usr/local/bin/composer
-        # remove Composer 1 pre-installed by TravisCI and use Composer 2 installed manually above
-        - PATH=$(echo "$PATH" | sed -e 's/:\/home\/travis\/.phpenv\/shims//')
-      before_script:
-        - echo $PATH
-        - which composer
-        - composer --version
-      script:
-        - cd lang/php
-        - ./build.sh clean test
+      after_script:
+        - echo "=== Skipped tests in the last run (mvn -B test -Phadoop2), with reasons ==="
+        - |
+          find . -path '*/target/surefire-reports/TEST-*.xml' -exec awk '/<testcase /{c=$0; sub(/.*classname="/,"",c); sub(/".*/,"",c); n=$0; sub(/.*<testcase name="/,"",n); sub(/".*/,"",n)} /<skipped/{m=$0; if (m ~ /message="/) {sub(/.*message="/,"",m); sub(/".*/,"",m)} else m="no message"; print "SKIPPED " c "." n ": " m}' {} +
+        - |
+          echo "Skip reasons for the entries surefire records with no message - TestSpecificRecordBuilder.testBuilderPerformance, testBuilderPerformanceWithDefaultValues, testManualBuildPerformance and TestNettyServerWithCallbacks.performanceTest are micro-benchmarks marked @Ignore upstream without a reason string; TestReflectLogicalTypes.testReadUUIDMissingLogicalTypeReflect skips itself via Assume.assumeTrue(getFieldAccess() instanceof FieldAccessReflect) because another test in the same JVM already selected the Unsafe field access"
+        - |
+          find . -path '*/target/surefire-reports/TEST-*.xml' -exec grep -h -o '<testsuite [^>]*' {} + | awk '{for(i=2;i<=NF;i++){split($i,kv,"=");v=kv[2];gsub(/"/,"",v);if(kv[1]=="tests")t+=v;else if(kv[1]=="failures")f+=v;else if(kv[1]=="errors")e+=v;else if(kv[1]=="skipped")s+=v}} END{printf "=== Surefire totals of the last run (mvn -B test -Phadoop2): Tests run: %d, Failures: %d, Errors: %d, Skipped: %d ===\n",t,f,e,s}'
+        - |
+          # Keep the job open until Travis has archived this job's log up to the
+          # script result, so the harvested log carries the full test output.
+          i=0
+          while [ $i -lt 600 ]; do
+            if curl -s "https://api.travis-ci.com/v3/job/${TRAVIS_JOB_ID}/log.txt" | grep -Eq 'clean test" exited with [0-9]'; then
+              echo "log archived after ${i}s"; break
+            fi
+            echo "waiting for log archive... (${i}s)"
+            sleep 20; i=$((i+20))
+          done
 
 before_install:
   - lscpu

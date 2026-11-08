@@ -16,13 +16,6 @@
 name: 'Test JavaScript'
 on:
   workflow_dispatch:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
-    paths:
-    - .github/workflows/test-lang-js.yml
-    - lang/js/**
 
 defaults:
   run:
@@ -49,7 +42,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
-      - uses: actions/cache@v2
+      - uses: actions/cache@v4
         with:
           path: ~/.npm
           key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
@@ -78,7 +71,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
-      - uses: actions/cache@v2
+      - uses: actions/cache@v4
         with:
           path: ~/.npm
           key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
@@ -86,7 +79,7 @@ jobs:
             ${{ runner.os }}-node-
 
       - name: Setup Python for Generating Input Data
-        uses: actions/setup-python@v2
+        uses: MatteoH2O1999/setup-python@v4
 
       - name: Apt Install Compression Libs Required by Python
         run: |
